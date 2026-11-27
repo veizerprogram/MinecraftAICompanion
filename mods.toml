@@ -1,0 +1,24 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="MIT"
+
+[[mods]]
+modId="ai_companion"
+version="0.1.0"
+displayName="AI Companion"
+authors="Vitalik"
+description='''A first-step Minecraft companion with health, follow mode and monster defense.'''
+
+[[dependencies.ai_companion]]
+modId="forge"
+mandatory=true
+versionRange="[47,)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.ai_companion]]
+modId="minecraft"
+mandatory=true
+versionRange="[1.20.1,1.21)"
+ordering="NONE"
+side="BOTH"
