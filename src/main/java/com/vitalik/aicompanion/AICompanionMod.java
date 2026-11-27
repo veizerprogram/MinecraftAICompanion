@@ -14,7 +14,7 @@ public class AICompanionMod {
     public static final String MODID = "ai_companion";
 
     public AICompanionMod() {
-        IEventBus bus = FMLJavaFMLLoadingContext.get().getModEventBus();
+       IEventBus bus = FMLJavaModLoadingContext.get().getModEventBus();
         ModEntities.ENTITY_TYPES.register(bus);
         bus.addListener(this::registerAttributes);
     }
