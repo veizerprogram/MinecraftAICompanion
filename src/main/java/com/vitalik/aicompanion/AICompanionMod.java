@@ -13,11 +13,10 @@ import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 public class AICompanionMod {
     public static final String MODID = "ai_companion";
 
-    public AICompanionMod() {
-       IEventBus bus = FMLJavaModLoadingContext.get().getModEventBus();
-        IEventBus bus = FMLJavaModLoadingContext.get().getModEventBus();
-        bus.addListener(this::registerAttributes);
-    }
+   public AICompanionMod() {
+    IEventBus bus = FMLJavaModLoadingContext.get().getModEventBus();
+    bus.addListener(this::registerAttributes);
+}
 
     private void registerAttributes(EntityAttributeCreationEvent event) {
         event.put(ModEntities.COMPANION.get(), CompanionEntity.createAttributes().build());
