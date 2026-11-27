@@ -1,5 +1,6 @@
 package com.vitalik.aicompanion.entity;
 
+import net.minecraft.world.entity.ai.goal.target.HurtByTargetGoal;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
