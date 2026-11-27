@@ -31,6 +31,13 @@ jobs:
 
       - name: Upload mod JAR
         uses: actions/upload-artifact@v4
+
+              - name: Inspect mod JAR
+        run: |
+          echo "=== Generated files ==="
+          ls -lh build/libs/
+          echo "=== JAR contents ==="
+          jar tf build/libs/*.jar
         with:
           name: ai-companion-forge-1.20.1
           path: build/libs/*.jar
