@@ -50,14 +50,16 @@ public class ChattyChatEvents {
 
     private static String interpretMessage(CompanionEntity companion, String message) {
         if (containsAny(message, "стій", "стой", "почекай", "зачекай", "залишайся", "охороняй",
-                "чекай тут", "не рухайся", "залишся тут", "постій тут")) {
+                "чекай тут", "не рухайся", "залишся тут", "постій тут",
+                "stay", "wait here", "guard this", "stay here")) {
             companion.setStaying(true);
             return "Добре, залишаюся тут. Дай знати, коли вирушимо.";
         }
 
         if (containsAny(message, "ходімо", "ходім", "пішли", "пойдем", "за мною",
                 "йди за мною", "іди за мною", "ходи сюди", "іди сюди", "йди сюди", "до мене", "вирушаймо",
-                "пішли зі мною", "супроводжуй", "ходім зі мною", "повернись", "повертайся")) {
+                "пішли зі мною", "супроводжуй", "ходім зі мною", "повернись", "повертайся",
+                "follow me", "come with me", "come here", "let's go", "lets go", "come along")) {
             companion.followOwner();
             return "Я з тобою! Не відставаймо одне від одного.";
         }
