@@ -4,7 +4,7 @@ name: Build Minecraft AI Companion
 on:
   workflow_dispatch:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "chatty-autonomy-v2" ]
 
 permissions:
   contents: read
