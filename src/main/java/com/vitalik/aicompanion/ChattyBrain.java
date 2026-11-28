@@ -106,16 +106,20 @@ public final class ChattyBrain {
                 .whenComplete((response, error) -> {
                     REQUESTS_IN_PROGRESS.remove(companionId);
                     if (error != null || response == null || response.statusCode() < 200 || response.statusCode() >= 300) {
+                        notifyFailure(server, ownerId);
                         return;
                     }
 
                     Decision decision = parseResponse(response.body());
-                    if (decision == null || server == null) return;
+                    if (decision == null || server == null) {
+                        notifyFailure(server, ownerId);
+                        return;
+                    }
 
                     server.execute(() -> {
                         ServerPlayer currentOwner = server.getPlayerList().getPlayer(ownerId);
                         if (currentOwner == null || !currentOwner.isAlive()) return;
-                        if (!(currentOwner.level().getEntity(companionId) instanceof CompanionEntity current)
+                        if (!(currentOwner.serverLevel().getEntity(companionId) instanceof CompanionEntity current)
                                 || !current.isAlive() || !current.isOwnedBy(currentOwner)) return;
 
                         applyAction(current, decision.action);
@@ -172,6 +176,7 @@ public final class ChattyBrain {
                 .append("; голод: ").append(player.getFoodData().getFoodLevel())
                 .append("; предмет у руці: ").append(held.isEmpty() ? "порожньо" : held.getHoverName().getString())
                 .append("; рухається: ").append(player.getDeltaMovement().horizontalDistanceSqr() > 0.0025D)
+                .append("; зміна позиції від минулого спостереження: ").append(companion.observeOwnerMovement(player))
                 .append("; біжить: ").append(player.isSprinting())
                 .append("; присідає: ").append(player.isCrouching())
                 .append("; Chatty відстань до власника: ").append(Math.round(companion.distanceTo(player)))
