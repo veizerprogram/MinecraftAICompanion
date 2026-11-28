@@ -39,6 +39,8 @@ public class CompanionEntity extends PathfinderMob {
     private String lastObservedChat = "";
     private final Deque<String> conversationMemory = new ArrayDeque<>();
     private int lastAutonomyCheckTick = 0;
+    private boolean exploring = false;
+    private Vec3 lastObservedOwnerPosition;
 
     public CompanionEntity(EntityType<? extends PathfinderMob> type, Level level) {
         super(type, level);
@@ -136,6 +138,18 @@ public class CompanionEntity extends PathfinderMob {
         return String.join("\n", conversationMemory);
     }
 
+    public String observeOwnerMovement(Player owner) {
+        Vec3 current = owner.position();
+        if (lastObservedOwnerPosition == null) {
+            lastObservedOwnerPosition = current;
+            return "перше спостереження";
+        }
+        Vec3 delta = current.subtract(lastObservedOwnerPosition);
+        lastObservedOwnerPosition = current;
+        return String.format(java.util.Locale.ROOT, "ΔX %.1f, ΔY %.1f, ΔZ %.1f; пройдена відстань %.1f блоків",
+                delta.x, delta.y, delta.z, Math.sqrt(delta.horizontalDistanceSqr() + delta.y * delta.y));
+    }
+
     public String getLastObservedChat() {
         return lastObservedChat;
     }
@@ -146,11 +160,13 @@ public class CompanionEntity extends PathfinderMob {
 
     public void setStaying(boolean staying) {
         this.staying = staying;
+        this.exploring = false;
         this.getNavigation().stop();
     }
 
     public void followOwner() {
         this.staying = false;
+        this.exploring = false;
         this.getNavigation().stop();
     }
 
@@ -159,13 +175,16 @@ public class CompanionEntity extends PathfinderMob {
         this.getNavigation().stop();
         Vec3 target = DefaultRandomPos.getPos(this, 8, 5);
         if (target == null) return false;
-        return this.getNavigation().moveTo(target.x, target.y, target.z, 0.9D);
+        boolean started = this.getNavigation().moveTo(target.x, target.y, target.z, 0.9D);
+        this.exploring = started;
+        return started;
     }
 
     @Override
     public void tick() {
         super.tick();
         if (this.level().isClientSide || ownerUUID == null || staying || this.tickCount % 20 != 0) return;
+        if (exploring && !this.getNavigation().isInProgress()) exploring = false;
 
         int intervalTicks = ChattyAIConfig.AUTONOMY_INTERVAL_SECONDS.get() * 20;
         if (this.tickCount - lastAutonomyCheckTick < intervalTicks) return;
@@ -231,7 +250,7 @@ public class CompanionEntity extends PathfinderMob {
 
         @Override
         public boolean canUse() {
-            if (companion.ownerUUID == null || companion.staying) return false;
+            if (companion.ownerUUID == null || companion.staying || companion.exploring) return false;
             Player candidate = companion.level().getPlayerByUUID(companion.ownerUUID);
             if (candidate == null || candidate.isSpectator() || !candidate.isAlive()) return false;
             if (companion.distanceToSqr(candidate) < startDistance * startDistance) return false;
@@ -241,7 +260,7 @@ public class CompanionEntity extends PathfinderMob {
 
         @Override
         public boolean canContinueToUse() {
-            return owner != null && owner.isAlive() && !companion.staying
+            return owner != null && owner.isAlive() && !companion.staying && !companion.exploring
                     && companion.distanceToSqr(owner) > stopDistance * stopDistance;
         }
 
