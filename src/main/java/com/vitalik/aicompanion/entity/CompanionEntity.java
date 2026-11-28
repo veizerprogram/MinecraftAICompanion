@@ -14,6 +14,8 @@ import net.minecraft.world.entity.ai.goal.target.NearestAttackableTargetGoal;
 import net.minecraft.world.entity.monster.Monster;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.storage.LevelResource;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.nbt.CompoundTag;
 
@@ -28,6 +30,7 @@ public class CompanionEntity extends PathfinderMob {
     private int lowHealthLessonCooldown;
     private int damageMemoryCooldown;
     private String lastDecisionReason = "Я поки оглядаюся та знайомлюся зі світом.";
+    private boolean memoryArchiveConnected;
 
     public CompanionEntity(EntityType<? extends PathfinderMob> type, Level level) {
         super(type, level);
@@ -60,6 +63,7 @@ public class CompanionEntity extends PathfinderMob {
     public void tick() {
         super.tick();
         if (this.level().isClientSide) return;
+        connectMemoryArchive();
 
         if (lowHealthLessonCooldown > 0) lowHealthLessonCooldown--;
         if (damageMemoryCooldown > 0) damageMemoryCooldown--;
@@ -77,6 +81,16 @@ public class CompanionEntity extends PathfinderMob {
             memory.setCurrentGoal("Дослідити околиці та знайти щось цікаве");
             lastDecisionReason = "Поруч зараз немає негайної загрози, тож я вирішив трохи дослідити місцевість.";
         }
+    }
+
+
+    private void connectMemoryArchive() {
+        if (memoryArchiveConnected || !(this.level() instanceof ServerLevel serverLevel)) return;
+        java.nio.file.Path worldRoot = serverLevel.getServer().getWorldPath(LevelResource.ROOT);
+        java.nio.file.Path archive = worldRoot.resolve("chatty_memory")
+                .resolve(this.getUUID().toString() + ".jsonl");
+        memory.connectDiskArchive(archive);
+        memoryArchiveConnected = true;
     }
 
     @Override
