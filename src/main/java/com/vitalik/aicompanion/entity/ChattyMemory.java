@@ -7,6 +7,8 @@ import net.minecraft.nbt.StringTag;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.nio.file.Path;
+import java.io.IOException;
 
 /**
  * Persistent memory for meaningful events in Chatty's life.
@@ -21,6 +23,7 @@ public final class ChattyMemory {
 
     private int failedPlans;
     private int successfulPlans;
+    private Path persistenceFile;
 
     public void remember(String event) {
         if (event == null || event.isBlank()) return;
@@ -30,6 +33,7 @@ public final class ChattyMemory {
         if (!memories.isEmpty() && memories.get(memories.size() - 1).equals(entry)) return;
 
         memories.add(entry);
+        appendToDisk(entry);
         while (memories.size() > MAX_MEMORIES) {
             memories.remove(0);
         }
@@ -71,6 +75,66 @@ public final class ChattyMemory {
         if (memories.isEmpty()) return "Поки що я майже нічого не пережив.";
         int from = Math.max(0, memories.size() - Math.max(1, amount));
         return String.join(" | ", memories.subList(from, memories.size()));
+    }
+
+
+    /**
+     * Connects this memory to its per-world JSONL archive. The archive keeps the
+     * complete event history on disk; only the most recent MAX_MEMORIES are kept
+     * in the entity's fast in-memory/NBT cache.
+     */
+    public void connectDiskArchive(Path file) {
+        if (file == null) return;
+        this.persistenceFile = file;
+        java.util.Set<String> archived = new java.util.HashSet<>();
+        try {
+            if (java.nio.file.Files.exists(file)) {
+                for (String line : java.nio.file.Files.readAllLines(file, java.nio.charset.StandardCharsets.UTF_8)) {
+                    try {
+                        com.google.gson.JsonObject obj = com.google.gson.JsonParser.parseString(line).getAsJsonObject();
+                        if (!obj.has("event")) continue;
+                        String event = obj.get("event").getAsString();
+                        archived.add(event);
+                        rememberFromArchive(event);
+                    } catch (RuntimeException ignored) {
+                        // Skip a damaged line; one bad record must not break the world.
+                    }
+                }
+            }
+            Path parent = file.getParent();
+            if (parent != null) java.nio.file.Files.createDirectories(parent);
+            // Preserve any events already present in the entity save but not yet archived.
+            for (String event : memories) {
+                if (archived.add(event)) appendToDisk(event);
+            }
+        } catch (IOException ignored) {
+            this.persistenceFile = null;
+        }
+    }
+
+    private void rememberFromArchive(String event) {
+        if (event == null || event.isBlank()) return;
+        String entry = event.length() > 240 ? event.substring(0, 240) : event;
+        if (memories.contains(entry)) return;
+        memories.add(entry);
+        while (memories.size() > MAX_MEMORIES) memories.remove(0);
+    }
+
+    private void appendToDisk(String event) {
+        if (persistenceFile == null) return;
+        try {
+            Path parent = persistenceFile.getParent();
+            if (parent != null) java.nio.file.Files.createDirectories(parent);
+            com.google.gson.JsonObject obj = new com.google.gson.JsonObject();
+            obj.addProperty("event", event);
+            String line = new com.google.gson.Gson().toJson(obj) + System.lineSeparator();
+            java.nio.file.Files.writeString(persistenceFile, line,
+                    java.nio.charset.StandardCharsets.UTF_8,
+                    java.nio.file.StandardOpenOption.CREATE,
+                    java.nio.file.StandardOpenOption.APPEND);
+        } catch (IOException ignored) {
+            // NBT remains the fallback if the archive cannot be written.
+        }
     }
 
     public void save(CompoundTag tag) {
