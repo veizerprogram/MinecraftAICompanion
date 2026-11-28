@@ -38,6 +38,7 @@ public class CompanionEntity extends PathfinderMob {
     private boolean staying = false;
     private String lastObservedChat = "";
     private final Deque<String> conversationMemory = new ArrayDeque<>();
+    private final Deque<String> heardMessages = new ArrayDeque<>();
     private int lastAutonomyCheckTick = 0;
     private boolean exploring = false;
     private Vec3 lastObservedOwnerPosition;
@@ -128,7 +129,8 @@ public class CompanionEntity extends PathfinderMob {
     public void rememberHeardMessage(String speaker, String message) {
         if (speaker == null || message == null || message.isBlank()) return;
         String safeMessage = message.length() > 200 ? message.substring(0, 200) : message;
-        addMemory(speaker + ": " + safeMessage);
+        heardMessages.addLast(speaker + ": " + safeMessage);
+        while (heardMessages.size() > 12) heardMessages.removeFirst();
     }
 
     public void rememberAssistantMessage(String message) {
@@ -223,6 +225,10 @@ public class CompanionEntity extends PathfinderMob {
         ListTag history = new ListTag();
         for (String entry : conversationMemory) history.add(StringTag.valueOf(entry));
         tag.put("ChatHistory", history);
+
+        ListTag heard = new ListTag();
+        for (String entry : heardMessages) heard.add(StringTag.valueOf(entry));
+        tag.put("HeardChatHistory", heard);
     }
 
     @Override
@@ -236,6 +242,12 @@ public class CompanionEntity extends PathfinderMob {
         ListTag history = tag.getList("ChatHistory", 8);
         for (int i = Math.max(0, history.size() - 12); i < history.size(); i++) {
             conversationMemory.addLast(history.getString(i));
+        }
+
+        heardMessages.clear();
+        ListTag heard = tag.getList("HeardChatHistory", 8);
+        for (int i = Math.max(0, heard.size() - 12); i < heard.size(); i++) {
+            heardMessages.addLast(heard.getString(i));
         }
     }
 
