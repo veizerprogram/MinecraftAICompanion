@@ -17,9 +17,7 @@ public class ChattyChatEvents {
     public static void onPlayerChat(ServerChatEvent event) {
         ServerPlayer player = event.getPlayer();
         String original = event.getMessage().getString();
-        String message = original.toLowerCase(Locale.ROOT);
 
-        // Every nearby owned Chatty records the owner's latest chat message.
         List<CompanionEntity> companions = player.serverLevel().getEntitiesOfClass(
                 CompanionEntity.class,
                 player.getBoundingBox().inflate(48.0D),
@@ -28,36 +26,40 @@ public class ChattyChatEvents {
 
         for (CompanionEntity companion : companions) {
             companion.rememberChat(original);
-            String reply = interpretMessage(companion, message);
+
+            // When configured, the AI receives every message from its owner in range.
+            // The local command parser remains available if the AI is not configured.
+            if (ChattyBrain.answerPlayerMessage(companion, player, original)) {
+                continue;
+            }
+
+            String reply = interpretMessage(companion, original.toLowerCase(Locale.ROOT));
             if (reply != null) {
+                companion.rememberAssistantMessage(reply);
                 player.sendSystemMessage(Component.literal("Chatty: " + reply));
             }
         }
     }
 
     private static String interpretMessage(CompanionEntity companion, String message) {
-        // Stay / wait commands
-        if (containsAny(message, "стій", "стой", "почекай", "зачекай", "залишайся", "залишайся тут", "охороняй")) {
+        if (containsAny(message, "стій", "стой", "почекай", "зачекай", "залишайся", "охороняй")) {
             companion.setStaying(true);
             return "Добре, залишаюся тут. Дай знати, коли вирушимо.";
         }
 
-        // Follow / come along commands
-        if (containsAny(message, "ходімо", "ходім", "пішли", "пойдем", "за мною", "йди за мною",
-                "іди за мною", "ходи сюди", "іди сюди", "йди сюди", "до мене", "вирушаймо")) {
+        if (containsAny(message, "ходімо", "ходім", "пішли", "пойдем", "за мною",
+                "йди за мною", "іди за мною", "ходи сюди", "іди сюди", "йди сюди", "до мене", "вирушаймо")) {
             companion.followOwner();
             return "Я з тобою! Не відставаймо одне від одного.";
         }
 
-        // Exploration commands
-        if (containsAny(message, "досліди", "дослідимо", "розвід", "оглянь околиц", "досліди околиц",
-                "погуляй", "розвідай")) {
+        if (containsAny(message, "досліди", "дослідимо", "розвід", "оглянь околиц",
+                "досліди околиц", "погуляй", "розвідай")) {
             return companion.exploreNearby()
-                    ? "Гаразд, трохи розвідаю місцевість і повернуся."
+                    ? "Гаразд, трохи розвідаю місцевість."
                     : "Не можу зараз знайти безпечний шлях для розвідки.";
         }
 
-        // Direct questions or mentions
         if (containsAny(message, "chatty", "чатті", "чатти", "що робиш", "чим займ", "ти де", "ти тут")) {
             if (containsAny(message, "що робиш", "чим займ")) {
                 return companion.isStaying()
@@ -67,12 +69,10 @@ public class ChattyChatEvents {
             return "Я тут! Чую тебе. Що плануємо робити?";
         }
 
-        // Friendly greetings
         if (containsAny(message, "привіт", "вітаю", "здоров", "доброго ранку", "добрий вечір")) {
             return "Привіт! Радий тебе чути. Я готовий до пригод.";
         }
 
-        // General conversation: observe all messages, but do not spam the chat.
         return null;
     }
 
