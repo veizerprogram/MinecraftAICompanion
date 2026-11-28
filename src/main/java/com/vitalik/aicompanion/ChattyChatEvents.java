@@ -24,12 +24,23 @@ public class ChattyChatEvents {
 
             if (companion.isOwnedBy(player)) {
                 companion.rememberChat(original);
-                if (ChattyBrain.answerPlayerMessage(companion, player, original)) continue;
 
+                // Always execute deterministic companion commands before asking the remote AI.
                 String reply = interpretMessage(companion, original.toLowerCase(Locale.ROOT));
                 if (reply != null) {
                     companion.rememberAssistantMessage(reply);
                     player.sendSystemMessage(Component.literal("Chatty: " + reply));
+                    continue;
+                }
+
+                // Free-form conversation is sent to the AI only after local commands were checked.
+                if (!ChattyBrain.answerPlayerMessage(companion, player, original)
+                        && addressesChatty(original)) {
+                    String fallback = ChattyBrain.isConfigured()
+                            ? "Я почув тебе, але зараз зайнятий попереднім запитом. Спробуй ще раз за мить."
+                            : "Я тебе чую! Але мій AI-мозок ще не під'єднаний. Поки що можу виконувати команди: «йди за мною», «стій», «досліди околиці».";
+                    companion.rememberAssistantMessage(fallback);
+                    player.sendSystemMessage(Component.literal("Chatty: " + fallback));
                 }
             } else {
                 companion.rememberHeardMessage(player.getName().getString(), original);
@@ -38,25 +49,27 @@ public class ChattyChatEvents {
     }
 
     private static String interpretMessage(CompanionEntity companion, String message) {
-        if (containsAny(message, "стій", "стой", "почекай", "зачекай", "залишайся", "охороняй")) {
+        if (containsAny(message, "стій", "стой", "почекай", "зачекай", "залишайся", "охороняй",
+                "чекай тут", "не рухайся", "залишся тут", "постій тут")) {
             companion.setStaying(true);
             return "Добре, залишаюся тут. Дай знати, коли вирушимо.";
         }
 
         if (containsAny(message, "ходімо", "ходім", "пішли", "пойдем", "за мною",
-                "йди за мною", "іди за мною", "ходи сюди", "іди сюди", "йди сюди", "до мене", "вирушаймо")) {
+                "йди за мною", "іди за мною", "ходи сюди", "іди сюди", "йди сюди", "до мене", "вирушаймо",
+                "пішли зі мною", "супроводжуй", "ходім зі мною", "повернись", "повертайся")) {
             companion.followOwner();
             return "Я з тобою! Не відставаймо одне від одного.";
         }
 
         if (containsAny(message, "досліди", "дослідимо", "розвід", "оглянь околиц",
-                "досліди околиц", "погуляй", "розвідай")) {
+                "досліди околиц", "погуляй", "розвідай", "подивись навколо", "оглянься", "розвідай місцевість")) {
             return companion.exploreNearby()
                     ? "Гаразд, трохи розвідаю місцевість."
                     : "Не можу зараз знайти безпечний шлях для розвідки.";
         }
 
-        if (containsAny(message, "chatty", "чатті", "чатти", "що робиш", "чим займ", "ти де", "ти тут")) {
+        if (containsAny(message, "що робиш", "чим займ", "ти де", "ти тут", "як справи", "що думаєш")) {
             if (containsAny(message, "що робиш", "чим займ")) {
                 return companion.isStaying()
                         ? "Поки що стою на варті й чекаю на тебе."
@@ -69,7 +82,16 @@ public class ChattyChatEvents {
             return "Привіт! Радий тебе чути. Я готовий до пригод.";
         }
 
+        if (addressesChatty(message)) {
+            return "Я слухаю! Можеш попросити мене йти за тобою, зачекати або дослідити околиці.";
+        }
+
         return null;
+    }
+
+    private static boolean addressesChatty(String message) {
+        String normalized = message.toLowerCase(Locale.ROOT);
+        return containsAny(normalized, "chatty", "чатті", "чатти", "чатік", "чатик");
     }
 
     private static boolean containsAny(String message, String... phrases) {
