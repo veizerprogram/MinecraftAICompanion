@@ -135,6 +135,17 @@ public final class ChattyBrain {
                 });
     }
 
+    private static void notifyFailure(MinecraftServer server, UUID ownerId) {
+        if (server == null) return;
+        server.execute(() -> {
+            ServerPlayer owner = server.getPlayerList().getPlayer(ownerId);
+            if (owner != null) {
+                owner.sendSystemMessage(net.minecraft.network.chat.Component.literal(
+                        "Chatty: Не вдалося зв'язатися з AI-сервісом. Перевір налаштування API у config/ai_companion-common.toml."));
+            }
+        });
+    }
+
     private static void applyAction(CompanionEntity companion, String action) {
         switch (action) {
             case "FOLLOW" -> companion.followOwner();
@@ -154,6 +165,7 @@ public final class ChattyBrain {
 
             String cleaned = content.replaceAll("(?s)^\\s*\u0060{3}(?:json)?\\s*", "")
                     .replaceAll("(?s)\\s*\u0060{3}\\s*$", "").trim();
+            if (!cleaned.startsWith("{")) return new Decision(limit(cleaned, 240), "NONE");
             JsonObject result = JsonParser.parseString(cleaned).getAsJsonObject();
             String reply = result.has("reply") && !result.get("reply").isJsonNull()
                     ? result.get("reply").getAsString() : "";
