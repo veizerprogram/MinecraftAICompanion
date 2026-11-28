@@ -125,6 +125,12 @@ public class CompanionEntity extends PathfinderMob {
         addMemory("Ти: " + lastObservedChat);
     }
 
+    public void rememberHeardMessage(String speaker, String message) {
+        if (speaker == null || message == null || message.isBlank()) return;
+        String safeMessage = message.length() > 200 ? message.substring(0, 200) : message;
+        addMemory(speaker + ": " + safeMessage);
+    }
+
     public void rememberAssistantMessage(String message) {
         addMemory("Chatty: " + message);
     }
