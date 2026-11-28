@@ -7,7 +7,6 @@ import net.minecraftforge.event.ServerChatEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
-import java.util.List;
 import java.util.Locale;
 
 @Mod.EventBusSubscriber(modid = AICompanionMod.MODID, bus = Mod.EventBusSubscriber.Bus.FORGE)
@@ -18,20 +17,16 @@ public class ChattyChatEvents {
         ServerPlayer player = event.getPlayer();
         String original = event.getMessage().getString();
 
-        List<CompanionEntity> companions = player.serverLevel().getEntitiesOfClass(
-                CompanionEntity.class,
-                player.getBoundingBox().inflate(48.0D),
-                companion -> companion.isOwnedBy(player)
-        );
+        // The companion listens to the owner's chat throughout the loaded part of this dimension,
+        // not only when standing within a tiny radius.
+        for (var entity : player.serverLevel().getAllEntities()) {
+            if (!(entity instanceof CompanionEntity companion) || !companion.isOwnedBy(player)) continue;
 
-        for (CompanionEntity companion : companions) {
             companion.rememberChat(original);
 
-            // When configured, the AI receives every message from its owner in range.
+            // When configured, the AI receives every message from its owner.
             // The local command parser remains available if the AI is not configured.
-            if (ChattyBrain.answerPlayerMessage(companion, player, original)) {
-                continue;
-            }
+            if (ChattyBrain.answerPlayerMessage(companion, player, original)) continue;
 
             String reply = interpretMessage(companion, original.toLowerCase(Locale.ROOT));
             if (reply != null) {
