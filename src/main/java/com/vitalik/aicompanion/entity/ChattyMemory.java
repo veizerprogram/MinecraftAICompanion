@@ -9,20 +9,27 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Persistent short-form memory for Chatty.
+ * Persistent memory for meaningful events in Chatty's life.
  * Memories are stored with the companion entity in its Minecraft NBT data.
  */
 public final class ChattyMemory {
-    private static final int MAX_MEMORIES = 128;
+    // Keep a generous history while avoiding an endlessly growing entity save tag.
+    private static final int MAX_MEMORIES = 512;
 
     private final List<String> memories = new ArrayList<>();
     private String currentGoal = "Познайомитися зі світом";
+
     private int failedPlans;
     private int successfulPlans;
 
     public void remember(String event) {
         if (event == null || event.isBlank()) return;
-        memories.add(event.length() > 240 ? event.substring(0, 240) : event);
+
+        String entry = event.length() > 240 ? event.substring(0, 240) : event;
+        // Repeated identical events in a row add no useful information.
+        if (!memories.isEmpty() && memories.get(memories.size() - 1).equals(entry)) return;
+
+        memories.add(entry);
         while (memories.size() > MAX_MEMORIES) {
             memories.remove(0);
         }
@@ -39,7 +46,9 @@ public final class ChattyMemory {
     }
 
     public void setCurrentGoal(String goal) {
-        if (goal != null && !goal.isBlank()) currentGoal = goal;
+        if (goal == null || goal.isBlank() || goal.equals(currentGoal)) return;
+        currentGoal = goal;
+        remember("Нова ціль: " + goal);
     }
 
     public String getCurrentGoal() {
@@ -60,7 +69,7 @@ public final class ChattyMemory {
 
     public String latestMemories(int amount) {
         if (memories.isEmpty()) return "Поки що я майже нічого не пережив.";
-        int from = Math.max(0, memories.size() - amount);
+        int from = Math.max(0, memories.size() - Math.max(1, amount));
         return String.join(" | ", memories.subList(from, memories.size()));
     }
 
