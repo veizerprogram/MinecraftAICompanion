@@ -34,7 +34,7 @@ public final class ChattyAIConfig {
 
         AUTONOMY_INTERVAL_SECONDS = BUILDER
                 .comment("How often Chatty may ask the AI to independently assess the situation.")
-                .defineInRange("autonomyIntervalSeconds", 240, 120, 1800);
+                .defineInRange("autonomyIntervalSeconds", 300, 120, 1800);
 
         BUILDER.pop();
         SPEC = BUILDER.build();
