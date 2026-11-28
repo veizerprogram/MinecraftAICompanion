@@ -25,8 +25,9 @@ public class CompanionEntity extends PathfinderMob {
     private UUID ownerUUID;
     private boolean staying = false;
     private final ChattyMemory memory = new ChattyMemory();
-    private int autonomyTicks;
     private int lowHealthLessonCooldown;
+    private int damageMemoryCooldown;
+    private String lastDecisionReason = "Я поки оглядаюся та знайомлюся зі світом.";
 
     public CompanionEntity(EntityType<? extends PathfinderMob> type, Level level) {
         super(type, level);
@@ -60,19 +61,21 @@ public class CompanionEntity extends PathfinderMob {
         super.tick();
         if (this.level().isClientSide) return;
 
-        if (autonomyTicks > 0) autonomyTicks--;
         if (lowHealthLessonCooldown > 0) lowHealthLessonCooldown--;
+        if (damageMemoryCooldown > 0) damageMemoryCooldown--;
 
         // Chatty reflects on his condition periodically, rather than every game tick.
         if (this.tickCount % 200 == 0 && this.getHealth() <= this.getMaxHealth() * 0.35F
                 && lowHealthLessonCooldown == 0) {
             memory.learnFromFailure("Я отримав багато шкоди. Наступного разу треба бути обережнішим і не лізти в бій з низьким здоров'ям.");
             memory.setCurrentGoal("Знайти безпечне місце та відновитися");
+            lastDecisionReason = "Я ослаблений, тому зараз обираю безпеку замість пригод.";
             lowHealthLessonCooldown = 1200;
         }
 
         if (this.tickCount % 2400 == 0 && !staying && this.getTarget() == null) {
             memory.setCurrentGoal("Дослідити околиці та знайти щось цікаве");
+            lastDecisionReason = "Поруч зараз немає негайної загрози, тож я вирішив трохи дослідити місцевість.";
         }
     }
 
@@ -115,8 +118,13 @@ public class CompanionEntity extends PathfinderMob {
     public void setStaying(boolean staying) {
         this.staying = staying;
         this.getNavigation().stop();
-        if (staying) memory.setCurrentGoal("Залишатися тут і стежити за місцевістю");
-        else memory.setCurrentGoal("Самостійно досліджувати світ або подорожувати з напарником");
+        if (staying) {
+            memory.setCurrentGoal("Залишатися тут і стежити за місцевістю");
+            lastDecisionReason = "Я погодився зачекати тут, як мене попросили.";
+        } else {
+            memory.setCurrentGoal("Самостійно досліджувати світ або подорожувати з напарником");
+            lastDecisionReason = "Я вирішив знову бути вільним у пересуванні.";
+        }
     }
 
     public void handleChatCommand(Player player, String command) {
@@ -132,10 +140,13 @@ public class CompanionEntity extends PathfinderMob {
             // when badly hurt and a hostile target is already engaging him.
             if (this.getHealth() <= this.getMaxHealth() * 0.20F && this.getTarget() != null) {
                 player.sendSystemMessage(Component.literal("Chatty: Зараз не можу. Я надто ослаблений і мушу відійти в безпечне місце."));
+                lastDecisionReason = "Я відмовився, бо здоров’я критично низьке, а поруч є ворог.";
                 memory.remember("Я відмовився від подорожі, бо був сильно поранений і під загрозою.");
                 memory.setCurrentGoal("Вижити та відновитися");
             } else {
                 setStaying(false);
+                lastDecisionReason = "Я оцінив свій стан і вирішив, що зараз можу безпечно піти разом.";
+                memory.recordSuccess("Я прийняв пропозицію вирушити разом після оцінки свого стану.");
                 player.sendSystemMessage(Component.literal("Chatty: Добре, цього разу піду з тобою."));
             }
         } else if (message.equals("стій") || message.contains("залишайся")
@@ -156,6 +167,9 @@ public class CompanionEntity extends PathfinderMob {
             player.sendSystemMessage(Component.literal("Chatty: Зараз моя ціль — " + memory.getCurrentGoal()
                     + ". Успішних планів: " + memory.getSuccessfulPlans()
                     + ", невдалих: " + memory.getFailedPlans() + "."));
+        } else if (message.contains("що робиш") || message.contains("чим займаєшся")
+                || message.contains("чому ти так вирішив")) {
+            player.sendSystemMessage(Component.literal("Chatty: " + lastDecisionReason + " Моя поточна ціль: " + memory.getCurrentGoal()));
         } else if (message.contains("допоможи") || message.contains("команди")
                 || message.equals("help") || message.contains("що ти вмієш")) {
             player.sendSystemMessage(Component.literal("Chatty: Я можу йти за тобою, чекати, досліджувати околиці, запам'ятовувати події та розповідати про свої цілі. Скажи «що пам'ятаєш» або «яка твоя ціль»."));
@@ -168,9 +182,15 @@ public class CompanionEntity extends PathfinderMob {
     public boolean hurt(DamageSource source, float amount) {
         boolean damaged = super.hurt(source, amount);
         if (damaged && !this.level().isClientSide && this.getHealth() > 0.0F) {
-            memory.remember("Я отримав шкоду у світі Minecraft.");
-            if (this.getHealth() < this.getMaxHealth() * 0.35F) {
-                memory.learnFromFailure("Бій став небезпечним; потрібно оцінювати здоров'я перед наступною сутичкою.");
+            if (damageMemoryCooldown == 0) {
+                memory.remember("Я отримав шкоду у світі Minecraft.");
+                damageMemoryCooldown = 200;
+            }
+            if (this.getHealth() < this.getMaxHealth() * 0.35F && lowHealthLessonCooldown == 0) {
+                memory.learnFromFailure("Бій став небезпечним; потрібно оцінювати здоров’я перед наступною сутичкою.");
+                memory.setCurrentGoal("Знайти безпечне місце та відновитися");
+                lastDecisionReason = "Я отримав багато шкоди й маю берегти себе.";
+                lowHealthLessonCooldown = 1200;
             }
         }
         return damaged;
@@ -181,6 +201,7 @@ public class CompanionEntity extends PathfinderMob {
         super.addAdditionalSaveData(tag);
         if (ownerUUID != null) tag.putUUID("OwnerUUID", ownerUUID);
         tag.putBoolean("Staying", staying);
+        tag.putString("ChattyLastDecisionReason", lastDecisionReason);
         memory.save(tag);
     }
 
@@ -189,6 +210,7 @@ public class CompanionEntity extends PathfinderMob {
         super.readAdditionalSaveData(tag);
         if (tag.hasUUID("OwnerUUID")) ownerUUID = tag.getUUID("OwnerUUID");
         staying = tag.getBoolean("Staying");
+        if (tag.contains("ChattyLastDecisionReason")) lastDecisionReason = tag.getString("ChattyLastDecisionReason");
         memory.load(tag);
     }
 
@@ -260,6 +282,7 @@ public class CompanionEntity extends PathfinderMob {
         public void start() {
             super.start();
             companion.memory.setCurrentGoal("Самостійно дослідити найближчі околиці");
+            companion.lastDecisionReason = "Мені цікаво, що є неподалік, тому я вирішив самостійно прогулятися.";
             companion.memory.remember("Я вирішив самостійно прогулятися й дослідити місцевість.");
         }
     }
