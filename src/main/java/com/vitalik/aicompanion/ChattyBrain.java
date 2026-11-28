@@ -7,6 +7,8 @@ import com.vitalik.aicompanion.entity.CompanionEntity;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.entity.monster.Monster;
 import net.minecraft.world.item.ItemStack;
 
 import java.net.URI;
@@ -76,7 +78,8 @@ public final class ChattyBrain {
                 + "Відповідай СТРОГО одним JSON-об'єктом без Markdown: "
                 + "{\"reply\":\"текст для чату або порожньо\","
                 + "\"action\":\"FOLLOW|WAIT|EXPLORE|NONE\"}. "
-                + "FOLLOW означає повернутися до власника; WAIT — залишитися на місці; "
+                + "FOLLOW означає йти за власником; RETREAT — негайно повернутися до власника; "
+                + "WAIT — залишитися на місці; GUARD — залишитися поруч і захищатися від монстрів; "
                 + "EXPLORE — дослідити найближчу безпечну ділянку; NONE — не змінювати поведінку. "
                 + "Обирай лише одну дію. Не проси й не розкривай API-ключі, паролі чи особисті дані.");
         messages.add(system);
@@ -149,7 +152,8 @@ public final class ChattyBrain {
     private static void applyAction(CompanionEntity companion, String action) {
         switch (action) {
             case "FOLLOW" -> companion.followOwner();
-            case "WAIT" -> companion.setStaying(true);
+            case "WAIT", "GUARD" -> companion.setStaying(true);
+            case "RETREAT" -> companion.followOwner();
             case "EXPLORE" -> companion.exploreNearby();
             default -> { }
         }
@@ -171,7 +175,7 @@ public final class ChattyBrain {
                     ? result.get("reply").getAsString() : "";
             String action = result.has("action") && !result.get("action").isJsonNull()
                     ? result.get("action").getAsString().toUpperCase(Locale.ROOT) : "NONE";
-            if (!Set.of("FOLLOW", "WAIT", "EXPLORE", "NONE").contains(action)) action = "NONE";
+            if (!Set.of("FOLLOW", "RETREAT", "WAIT", "GUARD", "EXPLORE", "NONE").contains(action)) action = "NONE";
             return new Decision(reply, action);
         } catch (Exception ignored) {
             return null;
@@ -181,10 +185,15 @@ public final class ChattyBrain {
     private static String worldSnapshot(CompanionEntity companion, ServerPlayer player) {
         StringBuilder out = new StringBuilder();
         ItemStack held = player.getMainHandItem();
+        String biome = player.level().getBiome(player.blockPosition()).unwrapKey()
+                .map(key -> key.location().toString()).orElse("невідомий");
         out.append("Гравець: ").append(player.getName().getString())
                 .append("; вимір: ").append(player.level().dimension().location())
+                .append("; біом: ").append(biome)
+                .append("; час доби: ").append(player.level().isDay() ? "день" : "ніч")
+                .append("; погода: ").append(player.level().isThundering() ? "гроза" : player.level().isRaining() ? "дощ" : "ясно")
                 .append("; координати: ").append(player.blockPosition())
-                .append("; здоров'я: ").append(Math.round(player.getHealth()))
+                .append("; здоров'я: ").append(Math.round(player.getHealth())).append("/").append(Math.round(player.getMaxHealth()))
                 .append("; голод: ").append(player.getFoodData().getFoodLevel())
                 .append("; предмет у руці: ").append(held.isEmpty() ? "порожньо" : held.getHoverName().getString())
                 .append("; рухається: ").append(player.getDeltaMovement().horizontalDistanceSqr() > 0.0025D)
@@ -193,7 +202,17 @@ public final class ChattyBrain {
                 .append("; присідає: ").append(player.isCrouching())
                 .append("; Chatty відстань до власника: ").append(Math.round(companion.distanceTo(player)))
                 .append(" блоків; Chatty режим очікування: ").append(companion.isStaying())
-                .append(".\nПоруч живі істоти: ");
+                .append(".\nСпорядження власника: ");
+        for (ItemStack stack : player.getInventory().items) {
+            if (!stack.isEmpty()) out.append(stack.getCount()).append("x ")
+                    .append(stack.getHoverName().getString()).append(", ");
+        }
+        for (ItemStack stack : player.getInventory().armor) {
+            if (!stack.isEmpty()) out.append("броня: ").append(stack.getHoverName().getString()).append(", ");
+        }
+        if (player.getOffhandItem().isEmpty()) out.append("ліва рука порожня");
+        else out.append("ліва рука: ").append(player.getOffhandItem().getHoverName().getString());
+        out.append(".\nПоруч живі істоти: ");
 
         int count = 0;
         for (LivingEntity entity : player.level().getEntitiesOfClass(
@@ -204,6 +223,27 @@ public final class ChattyBrain {
                     .append(" (").append(Math.round(entity.distanceTo(player))).append(" блоків), ");
         }
         if (count == 0) out.append("немає помічених істот");
+
+        out.append(".\nНебезпечні монстри поруч: ");
+        int threats = 0;
+        for (Monster monster : player.level().getEntitiesOfClass(
+                Monster.class, player.getBoundingBox().inflate(16.0D), Monster::isAlive)) {
+            if (threats++ >= 6) break;
+            out.append(monster.getName().getString()).append(" (")
+                    .append(Math.round(monster.distanceTo(player))).append(" блоків), ");
+        }
+        if (threats == 0) out.append("не помічені");
+
+        out.append(".\nПредмети, що лежать поруч: ");
+        int drops = 0;
+        for (ItemEntity item : player.level().getEntitiesOfClass(
+                ItemEntity.class, player.getBoundingBox().inflate(10.0D), ItemEntity::isAlive)) {
+            if (drops++ >= 6) break;
+            out.append(item.getItem().getCount()).append("x ")
+                    .append(item.getItem().getHoverName().getString()).append(" (")
+                    .append(Math.round(item.distanceTo(player))).append(" блоків), ");
+        }
+        if (drops == 0) out.append("не помічені");
         return out.toString();
     }
 
