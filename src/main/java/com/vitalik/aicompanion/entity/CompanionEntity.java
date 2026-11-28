@@ -1,7 +1,11 @@
 package com.vitalik.aicompanion.entity;
 
-import net.minecraft.network.chat.Component;
+import com.vitalik.aicompanion.ChattyAIConfig;
+import com.vitalik.aicompanion.ChattyBrain;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.StringTag;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
@@ -24,6 +28,8 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.phys.Vec3;
 
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.EnumSet;
 import java.util.UUID;
 
@@ -31,6 +37,8 @@ public class CompanionEntity extends PathfinderMob {
     private UUID ownerUUID;
     private boolean staying = false;
     private String lastObservedChat = "";
+    private final Deque<String> conversationMemory = new ArrayDeque<>();
+    private int lastAutonomyCheckTick = 0;
 
     public CompanionEntity(EntityType<? extends PathfinderMob> type, Level level) {
         super(type, level);
@@ -52,8 +60,6 @@ public class CompanionEntity extends PathfinderMob {
         this.goalSelector.addGoal(2, new MeleeAttackGoal(this, 1.15D, true));
         this.goalSelector.addGoal(3, new FollowOwnerGoal(this, 1.08D, 5.5F, 2.7F));
 
-        // Chatty only wanders a little when the owner is nearby.
-        // This prevents the old random-stroll goal from making him circle aimlessly.
         this.goalSelector.addGoal(5, new WaterAvoidingRandomStrollGoal(this, 0.65D) {
             @Override
             public boolean canUse() {
@@ -112,9 +118,22 @@ public class CompanionEntity extends PathfinderMob {
     }
 
     public void rememberChat(String message) {
-        if (message != null) {
-            lastObservedChat = message.length() > 240 ? message.substring(0, 240) : message;
-        }
+        if (message == null || message.isBlank()) return;
+        lastObservedChat = message.length() > 240 ? message.substring(0, 240) : message;
+        addMemory("Ти: " + lastObservedChat);
+    }
+
+    public void rememberAssistantMessage(String message) {
+        addMemory("Chatty: " + message);
+    }
+
+    private void addMemory(String entry) {
+        conversationMemory.addLast(entry.length() > 260 ? entry.substring(0, 260) : entry);
+        while (conversationMemory.size() > 12) conversationMemory.removeFirst();
+    }
+
+    public String getConversationContext() {
+        return String.join("\n", conversationMemory);
     }
 
     public String getLastObservedChat() {
@@ -146,16 +165,22 @@ public class CompanionEntity extends PathfinderMob {
     @Override
     public void tick() {
         super.tick();
-        if (!this.level().isClientSide && ownerUUID != null && !staying && this.tickCount % 2400 == 0) {
-            Player owner = this.level().getPlayerByUUID(ownerUUID);
-            if (owner instanceof ServerPlayer serverPlayer && owner.isAlive()
-                    && this.distanceToSqr(owner) < 24.0D * 24.0D
-                    && this.getRandom().nextInt(3) == 0) {
+        if (this.level().isClientSide || ownerUUID == null || staying || this.tickCount % 20 != 0) return;
+
+        int intervalTicks = ChattyAIConfig.AUTONOMY_INTERVAL_SECONDS.get() * 20;
+        if (this.tickCount - lastAutonomyCheckTick < intervalTicks) return;
+        lastAutonomyCheckTick = this.tickCount;
+
+        Player owner = this.level().getPlayerByUUID(ownerUUID);
+        if (owner instanceof ServerPlayer serverPlayer && owner.isAlive()
+                && this.distanceToSqr(owner) <= 24.0D * 24.0D) {
+            if (ChattyBrain.isConfigured()) {
+                ChattyBrain.thinkAutonomously(this, serverPlayer);
+            } else if (this.getRandom().nextInt(3) == 0) {
                 String[] suggestions = {
                         "Може, дослідимо околиці? Раптом знайдемо щось цікаве.",
                         "Як щодо невеликої пригоди? Я готовий вирушати.",
-                        "Можемо назбирати ресурсів або пошукати місце для бази.",
-                        "Я оглянувся навколо. Може, перевіримо, що там за пагорбом?"
+                        "Можемо назбирати ресурсів або пошукати місце для бази."
                 };
                 serverPlayer.sendSystemMessage(Component.literal("Chatty: "
                         + suggestions[this.getRandom().nextInt(suggestions.length)]));
@@ -169,6 +194,10 @@ public class CompanionEntity extends PathfinderMob {
         if (ownerUUID != null) tag.putUUID("OwnerUUID", ownerUUID);
         tag.putBoolean("Staying", staying);
         tag.putString("LastObservedChat", lastObservedChat);
+
+        ListTag history = new ListTag();
+        for (String entry : conversationMemory) history.add(StringTag.valueOf(entry));
+        tag.put("ChatHistory", history);
     }
 
     @Override
@@ -177,6 +206,12 @@ public class CompanionEntity extends PathfinderMob {
         if (tag.hasUUID("OwnerUUID")) ownerUUID = tag.getUUID("OwnerUUID");
         staying = tag.getBoolean("Staying");
         lastObservedChat = tag.getString("LastObservedChat");
+
+        conversationMemory.clear();
+        ListTag history = tag.getList("ChatHistory", 8);
+        for (int i = Math.max(0, history.size() - 12); i < history.size(); i++) {
+            conversationMemory.addLast(history.getString(i));
+        }
     }
 
     private static class FollowOwnerGoal extends Goal {
