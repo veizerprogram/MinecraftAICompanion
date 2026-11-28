@@ -17,21 +17,22 @@ public class ChattyChatEvents {
         ServerPlayer player = event.getPlayer();
         String original = event.getMessage().getString();
 
-        // The companion listens to the owner's chat throughout the loaded part of this dimension,
-        // not only when standing within a tiny radius.
+        // Chatty locally remembers messages visible in the loaded part of this dimension.
+        // Only the owner's messages are forwarded to the external AI provider.
         for (var entity : player.serverLevel().getAllEntities()) {
-            if (!(entity instanceof CompanionEntity companion) || !companion.isOwnedBy(player)) continue;
+            if (!(entity instanceof CompanionEntity companion)) continue;
 
-            companion.rememberChat(original);
+            if (companion.isOwnedBy(player)) {
+                companion.rememberChat(original);
+                if (ChattyBrain.answerPlayerMessage(companion, player, original)) continue;
 
-            // When configured, the AI receives every message from its owner.
-            // The local command parser remains available if the AI is not configured.
-            if (ChattyBrain.answerPlayerMessage(companion, player, original)) continue;
-
-            String reply = interpretMessage(companion, original.toLowerCase(Locale.ROOT));
-            if (reply != null) {
-                companion.rememberAssistantMessage(reply);
-                player.sendSystemMessage(Component.literal("Chatty: " + reply));
+                String reply = interpretMessage(companion, original.toLowerCase(Locale.ROOT));
+                if (reply != null) {
+                    companion.rememberAssistantMessage(reply);
+                    player.sendSystemMessage(Component.literal("Chatty: " + reply));
+                }
+            } else {
+                companion.rememberHeardMessage(player.getName().getString(), original);
             }
         }
     }
