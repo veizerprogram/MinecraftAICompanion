@@ -1,7 +1,7 @@
 package com.vitalik.aicompanion.entity;
 
-import net.minecraft.world.entity.ai.goal.target.HurtByTargetGoal;
 import net.minecraft.network.chat.Component;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
@@ -9,16 +9,20 @@ import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.PathfinderMob;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
-import net.minecraft.world.entity.ai.goal.*;
+import net.minecraft.world.entity.ai.goal.FloatGoal;
+import net.minecraft.world.entity.ai.goal.Goal;
+import net.minecraft.world.entity.ai.goal.LookAtPlayerGoal;
+import net.minecraft.world.entity.ai.goal.MeleeAttackGoal;
+import net.minecraft.world.entity.ai.goal.RandomLookAroundGoal;
+import net.minecraft.world.entity.ai.goal.WaterAvoidingRandomStrollGoal;
+import net.minecraft.world.entity.ai.goal.target.HurtByTargetGoal;
 import net.minecraft.world.entity.ai.goal.target.NearestAttackableTargetGoal;
+import net.minecraft.world.entity.ai.util.DefaultRandomPos;
 import net.minecraft.world.entity.monster.Monster;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.entity.Mob;
-import net.minecraft.world.entity.ai.navigation.PathNavigation;
-import net.minecraft.world.entity.ai.control.LookControl;
-import net.minecraft.world.entity.ai.goal.Goal;
-import net.minecraft.nbt.CompoundTag;
+import net.minecraft.world.phys.Vec3;
 
 import java.util.EnumSet;
 import java.util.UUID;
@@ -26,6 +30,7 @@ import java.util.UUID;
 public class CompanionEntity extends PathfinderMob {
     private UUID ownerUUID;
     private boolean staying = false;
+    private String lastObservedChat = "";
 
     public CompanionEntity(EntityType<? extends PathfinderMob> type, Level level) {
         super(type, level);
@@ -45,8 +50,23 @@ public class CompanionEntity extends PathfinderMob {
     protected void registerGoals() {
         this.goalSelector.addGoal(1, new FloatGoal(this));
         this.goalSelector.addGoal(2, new MeleeAttackGoal(this, 1.15D, true));
-        this.goalSelector.addGoal(3, new FollowOwnerGoal(this, 1.05D, 12.0F, 3.0F));
-        this.goalSelector.addGoal(5, new WaterAvoidingRandomStrollGoal(this, 0.8D));
+        this.goalSelector.addGoal(3, new FollowOwnerGoal(this, 1.08D, 5.5F, 2.7F));
+
+        // Chatty only wanders a little when the owner is nearby.
+        // This prevents the old random-stroll goal from making him circle aimlessly.
+        this.goalSelector.addGoal(5, new WaterAvoidingRandomStrollGoal(this, 0.65D) {
+            @Override
+            public boolean canUse() {
+                if (ownerUUID == null || staying) return false;
+                Player owner = CompanionEntity.this.level().getPlayerByUUID(ownerUUID);
+                if (owner == null || !owner.isAlive()) return false;
+                double distance = CompanionEntity.this.distanceToSqr(owner);
+                return distance > 4.5D * 4.5D && distance < 9.0D * 9.0D
+                        && CompanionEntity.this.getRandom().nextInt(4) == 0
+                        && super.canUse();
+            }
+        });
+
         this.goalSelector.addGoal(6, new LookAtPlayerGoal(this, Player.class, 8.0F));
         this.goalSelector.addGoal(7, new RandomLookAroundGoal(this));
 
@@ -59,9 +79,8 @@ public class CompanionEntity extends PathfinderMob {
         if (this.level().isClientSide) return InteractionResult.SUCCESS;
 
         if (player.isShiftKeyDown()) {
-            if (isOwner(player)) {
-                staying = !staying;
-                this.getNavigation().stop();
+            if (isOwnedBy(player)) {
+                setStaying(!staying);
                 player.sendSystemMessage(Component.literal(staying
                         ? "Chatty: Добре, залишаюся тут."
                         : "Chatty: Гаразд, я з тобою!"));
@@ -74,22 +93,74 @@ public class CompanionEntity extends PathfinderMob {
         if (ownerUUID == null) {
             ownerUUID = player.getUUID();
             player.sendSystemMessage(Component.literal("Chatty: Привіт! Відтепер ми команда."));
-        } else if (isOwner(player)) {
+        } else if (isOwnedBy(player)) {
             player.sendSystemMessage(Component.literal(staying
                     ? "Chatty: Я поки охороняю це місце."
-                    : "Chatty: Я поруч. Куди вирушаємо?"));
+                    : "Chatty: Я поруч. Можемо вирушати!"));
         } else {
             player.sendSystemMessage(Component.literal("Chatty: Я вже маю напарника."));
         }
         return InteractionResult.CONSUME;
     }
 
-    private boolean isOwner(Player player) {
+    public boolean isOwnedBy(Player player) {
         return ownerUUID != null && ownerUUID.equals(player.getUUID());
+    }
+
+    public UUID getOwnerUUID() {
+        return ownerUUID;
+    }
+
+    public void rememberChat(String message) {
+        if (message != null) {
+            lastObservedChat = message.length() > 240 ? message.substring(0, 240) : message;
+        }
+    }
+
+    public String getLastObservedChat() {
+        return lastObservedChat;
     }
 
     public boolean isStaying() {
         return staying;
+    }
+
+    public void setStaying(boolean staying) {
+        this.staying = staying;
+        this.getNavigation().stop();
+    }
+
+    public void followOwner() {
+        this.staying = false;
+        this.getNavigation().stop();
+    }
+
+    public boolean exploreNearby() {
+        this.staying = false;
+        this.getNavigation().stop();
+        Vec3 target = DefaultRandomPos.getPos(this, 8, 5);
+        if (target == null) return false;
+        return this.getNavigation().moveTo(target.x, target.y, target.z, 0.9D);
+    }
+
+    @Override
+    public void tick() {
+        super.tick();
+        if (!this.level().isClientSide && ownerUUID != null && !staying && this.tickCount % 2400 == 0) {
+            Player owner = this.level().getPlayerByUUID(ownerUUID);
+            if (owner instanceof ServerPlayer serverPlayer && owner.isAlive()
+                    && this.distanceToSqr(owner) < 24.0D * 24.0D
+                    && this.getRandom().nextInt(3) == 0) {
+                String[] suggestions = {
+                        "Може, дослідимо околиці? Раптом знайдемо щось цікаве.",
+                        "Як щодо невеликої пригоди? Я готовий вирушати.",
+                        "Можемо назбирати ресурсів або пошукати місце для бази.",
+                        "Я оглянувся навколо. Може, перевіримо, що там за пагорбом?"
+                };
+                serverPlayer.sendSystemMessage(Component.literal("Chatty: "
+                        + suggestions[this.getRandom().nextInt(suggestions.length)]));
+            }
+        }
     }
 
     @Override
@@ -97,6 +168,7 @@ public class CompanionEntity extends PathfinderMob {
         super.addAdditionalSaveData(tag);
         if (ownerUUID != null) tag.putUUID("OwnerUUID", ownerUUID);
         tag.putBoolean("Staying", staying);
+        tag.putString("LastObservedChat", lastObservedChat);
     }
 
     @Override
@@ -104,6 +176,7 @@ public class CompanionEntity extends PathfinderMob {
         super.readAdditionalSaveData(tag);
         if (tag.hasUUID("OwnerUUID")) ownerUUID = tag.getUUID("OwnerUUID");
         staying = tag.getBoolean("Staying");
+        lastObservedChat = tag.getString("LastObservedChat");
     }
 
     private static class FollowOwnerGoal extends Goal {
@@ -125,7 +198,7 @@ public class CompanionEntity extends PathfinderMob {
         public boolean canUse() {
             if (companion.ownerUUID == null || companion.staying) return false;
             Player candidate = companion.level().getPlayerByUUID(companion.ownerUUID);
-            if (candidate == null || candidate.isSpectator()) return false;
+            if (candidate == null || candidate.isSpectator() || !candidate.isAlive()) return false;
             if (companion.distanceToSqr(candidate) < startDistance * startDistance) return false;
             owner = candidate;
             return true;
