@@ -65,7 +65,7 @@ public class CompanionEntity extends PathfinderMob {
         this.goalSelector.addGoal(5, new WaterAvoidingRandomStrollGoal(this, 0.65D) {
             @Override
             public boolean canUse() {
-                if (ownerUUID == null || staying) return false;
+                if (ownerUUID == null || staying || exploring) return false;
                 Player owner = CompanionEntity.this.level().getPlayerByUUID(ownerUUID);
                 if (owner == null || !owner.isAlive()) return false;
                 double distance = CompanionEntity.this.distanceToSqr(owner);
